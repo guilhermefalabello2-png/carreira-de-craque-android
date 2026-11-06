@@ -4,7 +4,7 @@ name: Gerar APK Android
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [main]
 
 permissions:
   contents: read
@@ -13,6 +13,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: carreira
+
     steps:
       - name: Baixar projeto
         uses: actions/checkout@v4
@@ -20,7 +24,7 @@ jobs:
       - name: Configurar Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Configurar Java
         uses: actions/setup-java@v4
@@ -38,7 +42,7 @@ jobs:
         run: npx cap sync android
 
       - name: Gerar APK
-        working-directory: android
+        working-directory: carreira/android
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug
@@ -47,4 +51,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Carreira-de-Craque-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: carreira/android/app/build/outputs/apk/debug/app-debug.apk

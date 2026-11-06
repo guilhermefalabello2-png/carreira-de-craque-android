@@ -11,7 +11,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Baixar projeto
         uses: actions/checkout@v4
@@ -27,30 +26,55 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Extrair jogo
+      - name: Extrair ZIP e localizar projeto
+        shell: bash
         run: |
-          ZIP=$(find . -maxdepth 1 -name '*.zip' -print -quit)
-          test -n "$ZIP"
-          mkdir source
+          set -euo pipefail
+          ZIP="$(find . -maxdepth 1 -type f -iname '*.zip' -print -quit)"
+          test -n "$ZIP" || { echo 'Nenhum ZIP encontrado na raiz do repositório.'; exit 1; }
+          mkdir -p source
           unzip -q "$ZIP" -d source
-          PKG=$(find source -name package.json -print -quit)
-          test -n "$PKG"
-          PROJECT_DIR=$(dirname "$PKG")
+          PACKAGE_JSON="$(find source -type f -name package.json -not -path '*/node_modules/*' -print -quit)"
+          test -n "$PACKAGE_JSON" || { echo 'package.json não encontrado dentro do ZIP.'; exit 1; }
+          PROJECT_DIR="$(dirname "$PACKAGE_JSON")"
+          test -f "$PROJECT_DIR/capacitor.config.json" || { echo 'capacitor.config.json não encontrado ao lado do package.json.'; exit 1; }
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Projeto localizado em: $PROJECT_DIR"
 
       - name: Instalar dependências
+        working-directory: ${{ env.PROJECT_DIR }}
         run: npm install
-        working-directory: ${{ env.PROJECT_DIR }}
 
-      - name: Preparar Android
+      - name: Validar configuração web do Capacitor
         working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
-          if [ ! -d android ]; then
-            npx cap add android
-          fi
-          npx cap sync android
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('fs');
+          const configPath = 'capacitor.config.json';
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+          config.webDir = 'www';
+          delete config.bundledWebRuntime;
+          fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+          if (!fs.existsSync('www/index.html')) {
+            fs.mkdirSync('www', { recursive: true });
+            fs.copyFileSync('index.html', 'www/index.html');
+          }
+          if (!fs.existsSync('www/index.html')) throw new Error('www/index.html não foi criado.');
+          console.log('Capacitor webDir:', config.webDir);
+          console.log('Arquivo web:', fs.statSync('www/index.html').size, 'bytes');
+          NODE
 
-      - name: Gerar APK
+      - name: Criar projeto Android
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: npx cap add android
+
+      - name: Sincronizar jogo com Android
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: npx cap sync android
+
+      - name: Gerar APK de teste
         working-directory: ${{ env.PROJECT_DIR }}/android
         run: |
           chmod +x gradlew
@@ -59,6 +83,6 @@ jobs:
       - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
-          name: Carreira-de-Craque-APK
+          name: Carreira-de-Craque-v1.63.10-APK
           path: source/**/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
